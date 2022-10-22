@@ -1,0 +1,88 @@
+###########################
+## parallel bootstrap    ##
+##-----------------------##
+## while          14.854 ##
+## lapply         15.113 ##
+## mcapply         4.451 ## results in a list
+## foreach        14.131 ##
+## foreach+dopar   5.146 ## results in a matrix
+###########################
+
+library(doParallel)
+library(parallel)
+library(MASS)
+library(foreach)
+data("iris")
+
+x <- iris[which(iris[,5] != "setosa"), c(1,5)]
+trials <- 10000
+res <- data.frame()
+
+## while function
+system.time({
+     trial <- 1
+     while(trial <= trials) {
+           ind <- sample(100, 100, replace=TRUE)
+           result1 <- glm(x[ind,2]~x[ind,1], family=binomial(logit))
+           r <- coefficients(result1)
+           res <- rbind(res, r)
+           trial <- trial + 1
+       }
+ })
+
+## lapply function 
+x <- iris[which(iris[,5] != "setosa"), c(1,5)]
+trials <- seq(1, 10000)
+boot_fx <- function(trial) {
+  ind <- sample(100, 100, replace=TRUE)
+  result1 <- glm(x[ind,2]~x[ind,1], family=binomial(logit))
+  r <- coefficients(result1)
+  res <- rbind(data.frame(), r)
+}
+system.time({
+  results <- lapply(trials, boot_fx)
+})
+
+
+## mclapply
+numCores <- detectCores()
+numCores <- ifelse(numCores > 2, numCores-2, 1)
+# registerDoParallel(numCores) # fast way
+# cl <- parallel::makeCluster(numCores) # need to distribute objs and packages to cores.
+cl <- parallel::makeForkCluster(numCores) # copy all objs to cores.
+doParallel::registerDoParallel(cl)
+
+
+x <- iris[which(iris[,5] != "setosa"), c(1,5)]
+trials <- seq(1, 10000)
+boot_fx <- function(trial) {
+  ind <- sample(100, 100, replace=TRUE)
+  result1 <- glm(x[ind,2]~x[ind,1], family=binomial(logit))
+  r <- coefficients(result1)
+  res <- rbind(data.frame(), r)
+}
+system.time({
+  results <- mclapply(trials, boot_fx, mc.cores = numCores)
+})
+
+## foreach nonparallel
+x <- iris[which(iris[,5] != "setosa"), c(1,5)]
+trials <- 10000
+system.time({
+  r <- foreach(icount(trials), .combine=rbind) %do% {
+    ind <- sample(100, 100, replace=TRUE)
+    result1 <- glm(x[ind,2]~x[ind,1], family=binomial(logit))
+    coefficients(result1)
+  }
+})
+
+## foreach parallel
+system.time({
+  r <- foreach(icount(trials), .combine=rbind) %dopar% {
+    ind <- sample(100, 100, replace=TRUE)
+    result1 <- glm(x[ind,2]~x[ind,1], family=binomial(logit))
+    coefficients(result1)
+  }
+})
+#stopImplicitCluster()
+parallel::stopCluster(cl)
